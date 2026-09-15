@@ -1,9 +1,3 @@
-
----
-
-## 📄 `Optimize.ps1`
-
-```powershell
 <#
 .SYNOPSIS
     Windows 11 Input Lag Optimizer
@@ -13,17 +7,35 @@
 .NOTES
     Author: Windows 11 Input Lag Optimizer contributors
     License: MIT
-    Tested on: Windows 11 23H2, Ryzen 7 7700, RTX 3060
 #>
 
+$ScriptURL = "https://raw.githubusercontent.com/reiseiv/w11pro22631-opt/refs/heads/main/optimize.ps1"
+
 # =====================================================
-# ADMIN CHECK
+# ADMIN CHECK + IEX SUPPORT
 # =====================================================
 if (!([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     Write-Host "[!] This script requires Administrator privileges." -ForegroundColor Red
     Write-Host "    Relaunching with elevated privileges..." -ForegroundColor Yellow
-    Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
-    exit
+    
+    if ($PSCommandPath -and (Test-Path $PSCommandPath)) {
+        Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`"" -Verb RunAs
+        exit
+    } else {
+        $tempFile = "$env:TEMP\w11opt_$(Get-Random).ps1"
+        try {
+            Write-Host "    Downloading script to temp: $tempFile" -ForegroundColor Yellow
+            Invoke-WebRequest -Uri $ScriptURL -OutFile $tempFile -UseBasicParsing
+            Start-Process powershell.exe "-NoProfile -ExecutionPolicy Bypass -File `"$tempFile`"" -Verb RunAs
+            exit
+        } catch {
+            Write-Host "[x] Failed to download script: $_" -ForegroundColor Red
+            Write-Host "    Run PowerShell as Administrator manually, then:" -ForegroundColor Yellow
+            Write-Host "    irm $ScriptURL | iex" -ForegroundColor Gray
+            Read-Host "Press Enter to exit"
+            exit
+        }
+    }
 }
 
 # =====================================================
@@ -122,19 +134,16 @@ function Tweak-USBDevicePowerManagement {
 function Tweak-MouseSettings {
     Write-Step "Applying Mouse tweaks..."
     
-    # MouseDataQueueSize + ThreadPriority
     $mouseClassPath = "HKLM:\SYSTEM\CurrentControlSet\Services\mouclass\Parameters"
     if (!(Test-Path $mouseClassPath)) { New-Item -Path $mouseClassPath -Force | Out-Null }
     Set-ItemProperty -Path $mouseClassPath -Name "MouseDataQueueSize" -Value 20 -Type DWord -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $mouseClassPath -Name "ThreadPriority" -Value 31 -Type DWord -Force -ErrorAction SilentlyContinue
     
-    # Acceleration off
     $mousePath = "HKCU:\Control Panel\Mouse"
     Set-ItemProperty -Path $mousePath -Name "MouseSpeed" -Value "0" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $mousePath -Name "MouseThreshold1" -Value "0" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $mousePath -Name "MouseThreshold2" -Value "0" -Force -ErrorAction SilentlyContinue
     
-    # SmoothMouse curves = zero-length
     Set-ItemProperty -Path $mousePath -Name "SmoothMouseXCurve" -Value ([byte[]]@()) -Type Binary -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $mousePath -Name "SmoothMouseYCurve" -Value ([byte[]]@()) -Type Binary -Force -ErrorAction SilentlyContinue
     
@@ -145,21 +154,17 @@ function Tweak-MouseSettings {
 function Tweak-KeyboardSettings {
     Write-Step "Applying Keyboard tweaks..."
     
-    # Basic keyboard
     Set-ItemProperty -Path "HKCU:\Control Panel\Keyboard" -Name "KeyboardDelay" -Value "0" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path "HKCU:\Control Panel\Keyboard" -Name "KeyboardSpeed" -Value "31" -Force -ErrorAction SilentlyContinue
     
-    # KeyboardDataQueueSize
     Set-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Services\kbdclass\Parameters" -Name "KeyboardDataQueueSize" -Value 22 -Type DWord -Force -ErrorAction SilentlyContinue
     
-    # --- CRITICAL: FilterKeys hotkey block ---
     $kbdRespPath = "HKCU:\Control Panel\Accessibility\Keyboard Response"
     Set-ItemProperty -Path $kbdRespPath -Name "Flags" -Value "122" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $kbdRespPath -Name "AutoRepeatDelay" -Value "0" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $kbdRespPath -Name "AutoRepeatRate" -Value "0" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $kbdRespPath -Name "DelayBeforeAcceptance" -Value "0" -Force -ErrorAction SilentlyContinue
     
-    # Other accessibility features OFF
     Set-ItemProperty -Path "HKCU:\Control Panel\Accessibility\MouseKeys" -Name "Flags" -Value "62" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path "HKCU:\Control Panel\Accessibility\StickyKeys" -Name "Flags" -Value "510" -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path "HKCU:\Control Panel\Accessibility\ToggleKeys" -Name "Flags" -Value "62" -Force -ErrorAction SilentlyContinue
@@ -189,7 +194,6 @@ function Tweak-DWM_MPO {
     if (!(Test-Path $dwmPath)) { New-Item -Path $dwmPath -Force | Out-Null }
     Set-ItemProperty -Path $dwmPath -Name "OverlayTestMode" -Value 5 -Type DWord -Force -ErrorAction SilentlyContinue
     
-    # Remove harmful keys
     $desktopPath = "HKCU:\Control Panel\Desktop"
     @("DwmFrameRate", "DwmMaximizeAcrossMonitors", "DwmOverridePresent") | ForEach-Object {
         Remove-ItemProperty -Path $desktopPath -Name $_ -Force -ErrorAction SilentlyContinue
@@ -229,18 +233,15 @@ function Tweak-CsrssPriority {
 function Tweak-TimerAndMemory {
     Write-Step "Applying Timer Resolution & Memory tweaks..."
     
-    # Timer resolution
     $kernelPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\kernel"
     Set-ItemProperty -Path $kernelPath -Name "GlobalTimerResolutionRequests" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
     Write-OK "GlobalTimerResolutionRequests = 1"
     
-    # Memory
     $memPath = "HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management"
     Set-ItemProperty -Path $memPath -Name "DisablePagingExecutive" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
     Set-ItemProperty -Path $memPath -Name "DisableCompression" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
     Write-OK "DisablePagingExecutive = 1, DisableCompression = 1"
     
-    # Try MMAgent (may not work on Canary)
     try {
         Disable-MMAgent -MemoryCompression -ErrorAction Stop
         Write-OK "Memory Compression OFF via MMAgent"
@@ -254,7 +255,6 @@ function Tweak-TimerAndMemory {
 function Tweak-PowerManagement {
     Write-Step "Applying Power Management tweaks..."
     
-    # USB Selective Suspend
     $usbPath = "HKLM:\SYSTEM\CurrentControlSet\Services\USB"
     if (!(Test-Path $usbPath)) { New-Item -Path $usbPath -Force | Out-Null }
     Set-ItemProperty -Path $usbPath -Name "DisableSelectiveSuspend" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
@@ -264,7 +264,6 @@ function Tweak-PowerManagement {
         Set-ItemProperty -Path $usbHub3 -Name "DisableSelectiveSuspend" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
     }
     
-    # Power Throttling
     $powerThrottlePath = "HKLM:\SYSTEM\CurrentControlSet\Control\Power\PowerThrottling"
     if (!(Test-Path $powerThrottlePath)) { New-Item -Path $powerThrottlePath -Force | Out-Null }
     Set-ItemProperty -Path $powerThrottlePath -Name "PowerThrottlingOff" -Value 1 -Type DWord -Force -ErrorAction SilentlyContinue
